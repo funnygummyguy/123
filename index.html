@@ -1,0 +1,185 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Car Game Fixed</title>
+
+<style>
+  body,html {margin:0;overflow:hidden;}
+  #info {
+    position:fixed;top:10px;left:10px;padding:8px 12px;
+    background:rgba(0,0,0,0.5);color:white;border-radius:8px;
+    font-family:sans-serif;
+  }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.154/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.154/examples/jsm/",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+</head>
+
+<body>
+<div id="info">WASD to drive</div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as CANNON from "cannon-es";
+
+/* -------------------------
+   THREE + PHYSICS GLOBALS
+---------------------------*/
+let scene, camera, renderer;
+let world;
+let carModel;
+let carBody;
+const keys = {};
+
+/* -------------------------
+   INIT
+---------------------------*/
+init();
+animate();
+
+function init() {
+  /* SCENE */
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+
+  /* CAMERA */
+  camera = new THREE.PerspectiveCamera(
+    75, innerWidth / innerHeight, 0.1, 2000
+  );
+  camera.position.set(0, 5, 12);
+
+  /* RENDERER */
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  /* LIGHTS */
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+
+  const dir = new THREE.DirectionalLight(0xffffff, 1);
+  dir.position.set(5, 10, 5);
+  scene.add(dir);
+
+  /* PHYSICS WORLD */
+  world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+
+  /* GROUND */
+  const ground = new CANNON.Body({
+    type: CANNON.Body.STATIC,
+    shape: new CANNON.Plane()
+  });
+  ground.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+  world.addBody(ground);
+
+  const groundMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(400, 400),
+    new THREE.MeshStandardMaterial({ color: 0x228822 })
+  );
+  groundMesh.rotation.x = -Math.PI / 2;
+  scene.add(groundMesh);
+
+  /* CAR PHYSICS BODY */
+  carBody = new CANNON.Body({
+    mass: 200,
+    shape: new CANNON.Box(new CANNON.Vec3(1, 0.5, 2)),
+    position: new CANNON.Vec3(0, 2, 0)
+  });
+  world.addBody(carBody);
+
+  /* LOAD GLTF CAR MODEL (WORKING MODEL) */
+  const loader = new GLTFLoader();
+  loader.load(
+    "https://models.readyplayer.me/640cd070aca7a7bde03a4123.gltf",  // small, works anywhere
+    gltf => {
+      carModel = gltf.scene;
+      carModel.scale.set(1.5, 1.5, 1.5);
+      scene.add(carModel);
+    }
+  );
+
+  /* INPUT */
+  addEventListener("keydown", e => (keys[e.key.toLowerCase()] = true));
+  addEventListener("keyup", e => (keys[e.key.toLowerCase()] = false));
+  addEventListener("resize", () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+/* -------------------------
+   UPDATE LOOP
+---------------------------*/
+function animate() {
+  requestAnimationFrame(animate);
+
+  world.step(1 / 60);
+
+  handleMovement();
+
+  if (carModel) {
+    carModel.position.copy(carBody.position);
+    carModel.quaternion.copy(carBody.quaternion);
+  }
+
+  cameraFollow();
+
+  renderer.render(scene, camera);
+}
+
+/* -------------------------
+   MOVEMENT SYSTEM (FIXED)
+---------------------------*/
+function handleMovement() {
+  const forward = getForwardVector();
+  const force = 1200;
+
+  // forward / back
+  if (keys["w"]) carBody.applyForce(forward.scale(force), carBody.position);
+  if (keys["s"]) carBody.applyForce(forward.scale(-force), carBody.position);
+
+  // left / right (turn)
+  if (keys["a"]) rotateBody(carBody, 0.04);
+  if (keys["d"]) rotateBody(carBody, -0.04);
+}
+
+/* Get forward direction of physics body */
+function getForwardVector() {
+  const quat = carBody.quaternion;
+  const forward = new CANNON.Vec3(0, 0, -1);
+  return quat.vmult(forward); // rotate vector by quaternion
+}
+
+/* Rotate a physics body */
+function rotateBody(body, amount) {
+  const q = new CANNON.Quaternion();
+  q.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), amount);
+  body.quaternion = body.quaternion.mult(q);
+}
+
+/* -------------------------
+   CAMERA FOLLOW
+---------------------------*/
+function cameraFollow() {
+  if (!carModel) return;
+
+  const offset = new THREE.Vector3(0, 5, 12);
+  offset.applyQuaternion(carModel.quaternion);
+
+  camera.position.copy(carModel.position).add(offset);
+  camera.lookAt(carModel.position);
+}
+</script>
+</body>
+</html>
